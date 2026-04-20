@@ -80,7 +80,9 @@ class UiServer extends HomebridgePluginUiServer {
       return { success: true, tokens };
     } catch (e) {
       if (e instanceof SuplaOAuthError) {
-        throw new RequestError(e.message, { status: 400, body: e.body });
+        const snippet = (e.body || '').slice(0, 500).replace(/\s+/g, ' ').trim();
+        const detail = snippet ? ` | Response: ${snippet}` : '';
+        throw new RequestError(`${e.message}${detail}`, { status: 400, body: e.body });
       }
       throw new RequestError(`Network error: ${e.message || e}`, { status: 502 });
     }
@@ -120,7 +122,9 @@ class UiServer extends HomebridgePluginUiServer {
         throw new RequestError(hint, { status: e.status, body: e.body });
       }
       if (e instanceof SuplaOAuthError) {
-        throw new RequestError(`OAuth error: ${e.message}`, { status: 400, body: e.body });
+        const snippet = (e.body || '').slice(0, 500).replace(/\s+/g, ' ').trim();
+        const detail = snippet ? ` | Response: ${snippet}` : '';
+        throw new RequestError(`OAuth error: ${e.message}${detail}`, { status: 400, body: e.body });
       }
       throw new RequestError(`Network error: ${e.message || e}`, { status: 502 });
     }

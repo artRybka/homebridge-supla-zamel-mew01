@@ -60,6 +60,7 @@ export declare class SuplaClient {
     constructor(credentials: SuplaOAuthCredentials, initialTokens: OAuthTokens, onTokensUpdated?: ((tokens: OAuthTokens) => void) | undefined);
     static buildAuthorizeUrl(credentials: SuplaOAuthCredentials, state: string, scope?: string, redirectUri?: string): string;
     static exchangeCode(credentials: SuplaOAuthCredentials, code: string, redirectUri?: string): Promise<OAuthTokens>;
+    private static tokenRequest;
     getBaseUrl(): string;
     listElectricityMeters(): Promise<Channel[]>;
     getChannel(id: number): Promise<Channel>;

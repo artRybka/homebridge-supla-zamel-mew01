@@ -122,41 +122,69 @@ export class SuplaClient {
     code: string,
     redirectUri: string = DEFAULT_REDIRECT_URI,
   ): Promise<OAuthTokens> {
-    const base = normalizeServerUrl(credentials.serverUrl);
-    const body = new URLSearchParams({
+    return SuplaClient.tokenRequest(credentials, {
       grant_type: 'authorization_code',
       code,
-      client_id: credentials.clientId,
-      client_secret: credentials.clientSecret,
       redirect_uri: redirectUri,
     });
+  }
 
-    const res = await fetch(`${base}/oauth/v2/token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Accept: 'application/json',
-      },
-      body,
+  private static async tokenRequest(
+    credentials: SuplaOAuthCredentials,
+    params: Record<string, string>,
+  ): Promise<OAuthTokens> {
+    const base = normalizeServerUrl(credentials.serverUrl);
+    const basicAuth =
+      'Basic ' + Buffer.from(`${credentials.clientId}:${credentials.clientSecret}`).toString('base64');
+
+    const bodyWithCreds = new URLSearchParams({
+      ...params,
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
     });
 
-    const text = await res.text();
-    if (!res.ok) {
+    const doFetch = async (useBasic: boolean, bodyParams: URLSearchParams) => {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      };
+      if (useBasic) headers['Authorization'] = basicAuth;
+      const res = await fetch(`${base}/oauth/v2/token`, {
+        method: 'POST',
+        headers,
+        body: bodyParams,
+      });
+      const text = await res.text();
+      return { status: res.status, ok: res.ok, text };
+    };
+
+    // First: Basic Auth + creds in body (most servers accept this; RFC-compliant)
+    let resp = await doFetch(true, bodyWithCreds);
+
+    // Fallback: no Basic Auth (some servers reject duplicate credentials)
+    if (!resp.ok) {
+      const fallback = await doFetch(false, bodyWithCreds);
+      if (fallback.ok || fallback.status !== resp.status) {
+        resp = fallback;
+      }
+    }
+
+    if (!resp.ok) {
       throw new SuplaOAuthError(
-        `Authorization code exchange failed: HTTP ${res.status}`,
-        text,
+        `Token endpoint HTTP ${resp.status}`,
+        resp.text,
       );
     }
 
     let data: TokenEndpointResponse;
     try {
-      data = JSON.parse(text) as TokenEndpointResponse;
+      data = JSON.parse(resp.text) as TokenEndpointResponse;
     } catch {
-      throw new SuplaOAuthError('Token endpoint returned invalid JSON', text);
+      throw new SuplaOAuthError('Token endpoint returned invalid JSON', resp.text);
     }
 
     if (!data.access_token || !data.refresh_token) {
-      throw new SuplaOAuthError('Token endpoint response missing tokens', text);
+      throw new SuplaOAuthError('Token endpoint response missing tokens', resp.text);
     }
 
     return {
@@ -197,35 +225,15 @@ export class SuplaClient {
     }
 
     this.refreshingPromise = (async () => {
-      const body = new URLSearchParams({
+      const tokens = await SuplaClient.tokenRequest(this.credentials, {
         grant_type: 'refresh_token',
         refresh_token: this.refreshToken,
-        client_id: this.credentials.clientId,
-        client_secret: this.credentials.clientSecret,
       });
 
-      const res = await fetch(`${this.credentials.serverUrl}/oauth/v2/token`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Accept: 'application/json',
-        },
-        body,
-      });
-
-      const text = await res.text();
-      if (!res.ok) {
-        throw new SuplaOAuthError(
-          `Refresh token exchange failed: HTTP ${res.status}`,
-          text,
-        );
-      }
-
-      const data = JSON.parse(text) as TokenEndpointResponse;
-      this.accessToken = data.access_token;
-      this.accessTokenExpiresAt = Date.now() + data.expires_in * 1000;
-      if (data.refresh_token) {
-        this.refreshToken = data.refresh_token;
+      this.accessToken = tokens.accessToken;
+      this.accessTokenExpiresAt = tokens.accessTokenExpiresAt;
+      if (tokens.refreshToken) {
+        this.refreshToken = tokens.refreshToken;
       }
 
       this.onTokensUpdated?.({
