@@ -21,13 +21,16 @@ shows up in Apple Home as an outlet (always "on") with no values.
 
 ## Features
 
+- Supla **OAuth 2.0 authorization code** flow (newer Supla servers such as
+  `svr57.supla.org` no longer expose Personal Access Tokens, so OAuth is the
+  only supported path)
+- Automatic access-token refresh using the stored refresh token — tokens are
+  cached on disk and rotated transparently
 - Auto-discovers all electricity meters (`functionId=310`) on your Supla account
-- Detects the target Supla server automatically from the access token
 - One poll per platform — no duplicate API traffic when you have multiple meters
 - Two presentation modes:
   - **Combined** (default): one accessory per meter, summing all phases
   - **Per phase**: separate accessory for each phase (L1, L2, L3) with its own history
-- Resilient polling: API errors are logged but never crash Homebridge
 - All configuration through **Homebridge Config UI X** — `config.json` is never
   edited by hand
 
@@ -36,74 +39,95 @@ shows up in Apple Home as an outlet (always "on") with no values.
 ## Installation
 
 ```bash
-npm install -g homebridge-supla-mew01
+npm install -g github:artRybka/homebridge-supla-zamel-mew01
 ```
 
-Or from the Homebridge UI plugin tab, search for **Supla MEW-01**.
+If Homebridge runs in a Docker container (Synology Container Manager, official
+Homebridge image, etc.), install inside the container:
+
+```bash
+sudo docker exec homebridge npm install -g github:artRybka/homebridge-supla-zamel-mew01
+sudo docker restart homebridge
+```
 
 ---
 
 ## Setup
 
-### 1. Generate a Personal Access Token in Supla Cloud
+### 1. Register an OAuth application in Supla Cloud
 
-1. Sign in to [https://cloud.supla.org](https://cloud.supla.org)
-2. Go to **My account → Integrations → Personal access tokens**
-3. Click **Create token** and grant the **`channels_r`** scope
-4. Copy the full token — it has the format `{tokenHex}.{base64Url}`
+1. Log in to your Supla server directly, e.g. `https://svrNN.supla.org` (not
+   `cloud.supla.org` — it's a broker and may not expose OAuth management).
+2. Go to **Integrations → My OAuth apps → Register a new OAuth application**.
+3. Set:
+   - **Name**: anything, e.g. `Homebridge MEW-01`
+   - **Redirect URI**: `http://localhost`
+4. Save. Supla shows **Client ID** (a.k.a. *Public ID*) and **Client Secret** —
+   copy both.
 
-### 2. Configure the plugin
+### 2. Authorize the plugin in Config UI X
 
-1. Open **Homebridge Config UI X** and click the gear icon next to *Supla MEW-01*
-2. Paste the token into **Supla Personal Access Token**
-3. Click **Test connection & detect meters** — the plugin decodes the server URL
-   from the token and asks Supla Cloud for your meters
-4. Tick the meters you want to expose, choose presentation mode, and **Save**
+1. Open the plugin settings in **Homebridge Config UI X**.
+2. **Step 1** — paste the Supla **Server URL**, **Client ID**, and **Client Secret**.
+3. **Step 2** — click **Open Supla authorization**. A new tab opens with the
+   Supla consent screen. Approve. Supla redirects to `http://localhost?code=…` —
+   the page will not load (expected). Copy the **full redirect URL** from the
+   address bar back to the plugin UI and click **Exchange code for tokens**.
+4. **Step 3** — click **Test connection & detect meters**, tick the meters you
+   want to expose, pick presentation mode, and **Save configuration**.
 
-The plugin handles the rest. Restart is not required — Homebridge picks the new
-config up automatically (or after the bridge is restarted, depending on your
-Config UI X version).
+Homebridge will pick up the changes automatically (or after a restart depending
+on the Config UI X version).
 
 ### 3. View the data in Eve for HomeKit
 
 1. Install [Eve for HomeKit](https://apps.apple.com/app/eve-for-homekit/id917695792)
-2. The MEW-01 meter shows up in **At a Glance** as a Power tile
-3. Tap it to see voltage, current, power, and the accumulated kWh
-4. Power history starts populating after ~15–20 minutes of polling
+2. The MEW-01 meter appears in **At a Glance** as a Power tile
+3. Live values and history (after ~15–20 minutes of polling) show up there
 
 ---
 
 ## Configuration reference
 
-Filled in by the UI. Listed here only for reference — do not edit by hand.
+Filled in by the UI. Listed only for reference — do not edit by hand.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `accessToken` | string | — | Supla PAT (`channels_r` scope) |
-| `serverUrl` | string | derived | Auto-decoded from the token |
+| `serverUrl` | string | — | e.g. `https://svr57.supla.org` |
+| `clientId` | string | — | OAuth Public ID |
+| `clientSecret` | string | — | OAuth secret |
+| `refreshToken` | string | — | Obtained during authorization |
+| `accessToken` / `accessTokenExpiresAt` | — | auto | Cached for faster restarts |
 | `pollInterval` | integer | `30` | Seconds; minimum `10` |
 | `mode` | `combined` \| `perPhase` | `combined` | Presentation mode |
 | `channels` | `int[]` | auto | Specific Supla channel IDs to expose |
+
+Tokens rotated by Supla during refresh are persisted in
+`<homebridge-storage>/supla-mew01-tokens.json` so restarts survive
+refresh-token rotation.
 
 ---
 
 ## Troubleshooting
 
-**"Token rejected" toast in the UI**
-The token is missing the `channels_r` scope or has expired. Generate a fresh
-one in Supla Cloud and try again.
+**"Authorization code exchange failed"**
+- Verify the Redirect URI in the OAuth app is exactly `http://localhost`.
+- The code is single-use — obtain a new one by clicking **Open Supla
+  authorization** again.
+- Client Secret must be pasted without any leading/trailing whitespace.
 
-**"Decoded server URL looks invalid"**
-The token does not include the standard `{token}.{base64(serverUrl)}` suffix.
-This shouldn't happen with PATs generated from `cloud.supla.org`.
+**"Token rejected" on Test connection**
+- The refresh token has been revoked (e.g. you deleted the OAuth app or
+  regenerated the secret). Re-authorize in step 2.
 
 **No meters detected**
-Make sure the meter is paired with your Supla account and that its function
-in Supla is set to *Electricity meter* (Supla function ID `310`).
+- Verify the meter is paired with your Supla account and set as *Electricity
+  meter* (Supla function ID `310`).
+- OAuth scope is fixed at `channels_r` — enough for read-only meter access.
 
-**Numbers don't change in Eve**
-Check the Homebridge log. Polling errors are reported as `warn`. Default
-poll interval is 30 s — increase up to 600 s if you hit Supla rate limits.
+**Numbers don't update in Eve**
+- Check the Homebridge log — polling errors are reported as `warn`.
+- Default poll is 30 s; raise up to 600 s if rate-limited.
 
 ---
 
@@ -112,18 +136,22 @@ poll interval is 30 s — increase up to 600 s if you hit Supla rate limits.
 ```bash
 git clone https://github.com/artrybka/homebridge-supla-zamel-mew01
 cd homebridge-supla-zamel-mew01
-npm install
-npm run build
+npm install && npm run build
 
-# Quick smoke test against a real Supla account:
-SUPLA_TOKEN=xxxx.yyyy npm run probe
+# Print the authorization URL (paste the resulting code into SUPLA_AUTH_CODE below):
+SUPLA_CLIENT_ID=... SUPLA_SERVER_URL=https://svr57.supla.org \
+  npm run probe -- --auth-url
 
-# Watch + rebuild during development:
-npm run watch
+# Exchange the code and list meters:
+SUPLA_CLIENT_ID=... SUPLA_CLIENT_SECRET=... SUPLA_SERVER_URL=https://svr57.supla.org \
+  SUPLA_AUTH_CODE=... \
+  npm run probe
+
+# Re-use an already-obtained refresh token:
+SUPLA_CLIENT_ID=... SUPLA_CLIENT_SECRET=... SUPLA_SERVER_URL=... \
+  SUPLA_REFRESH_TOKEN=... \
+  npm run probe
 ```
-
-Run inside Homebridge as a **child bridge** during development so failed
-restarts don't take the whole bridge down.
 
 ---
 

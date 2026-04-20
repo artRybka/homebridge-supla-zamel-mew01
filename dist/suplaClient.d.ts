@@ -28,22 +28,42 @@ export interface Channel {
     caption: string | null;
     state?: ChannelState;
 }
+export interface SuplaOAuthCredentials {
+    clientId: string;
+    clientSecret: string;
+    serverUrl: string;
+}
+export interface OAuthTokens {
+    accessToken: string;
+    refreshToken: string;
+    accessTokenExpiresAt: number;
+}
+export declare const DEFAULT_REDIRECT_URI = "http://localhost";
+export declare const DEFAULT_OAUTH_SCOPE = "channels_r";
 export declare class SuplaApiError extends Error {
     readonly status: number;
     readonly body: string;
     constructor(message: string, status: number, body: string);
 }
-export declare class SuplaTokenError extends Error {
-    constructor(message: string);
+export declare class SuplaOAuthError extends Error {
+    readonly body?: string | undefined;
+    constructor(message: string, body?: string | undefined);
 }
+export declare function normalizeServerUrl(url: string): string;
 export declare class SuplaClient {
-    private readonly token;
-    private readonly baseUrl;
-    constructor(token: string, explicitServerUrl?: string);
-    static decodeServerFromToken(token: string): string;
-    private static normalizeUrl;
+    private readonly onTokensUpdated?;
+    private readonly credentials;
+    private accessToken;
+    private accessTokenExpiresAt;
+    private refreshToken;
+    private refreshingPromise;
+    constructor(credentials: SuplaOAuthCredentials, initialTokens: OAuthTokens, onTokensUpdated?: ((tokens: OAuthTokens) => void) | undefined);
+    static buildAuthorizeUrl(credentials: SuplaOAuthCredentials, state: string, scope?: string, redirectUri?: string): string;
+    static exchangeCode(credentials: SuplaOAuthCredentials, code: string, redirectUri?: string): Promise<OAuthTokens>;
     getBaseUrl(): string;
     listElectricityMeters(): Promise<Channel[]>;
     getChannel(id: number): Promise<Channel>;
+    private ensureAccessToken;
+    private refreshTokens;
     private request;
 }

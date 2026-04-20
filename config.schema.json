@@ -13,15 +13,28 @@
         "default": "Supla MEW-01",
         "required": true
       },
-      "accessToken": {
-        "title": "Supla Personal Access Token",
+      "clientId": {
+        "title": "OAuth Client ID",
         "type": "string",
         "required": true,
-        "description": "Generate in Supla Cloud: My account → Integrations → Personal access tokens. Required scope: channels_r."
+        "condition": { "functionBody": "return false;" }
+      },
+      "clientSecret": {
+        "title": "OAuth Client Secret",
+        "type": "string",
+        "required": true,
+        "condition": { "functionBody": "return false;" }
       },
       "serverUrl": {
-        "title": "Supla server URL (auto-detected)",
+        "title": "Supla Server URL",
         "type": "string",
+        "required": true,
+        "condition": { "functionBody": "return false;" }
+      },
+      "refreshToken": {
+        "title": "OAuth Refresh Token",
+        "type": "string",
+        "required": true,
         "condition": { "functionBody": "return false;" }
       },
       "pollInterval": {

@@ -34,6 +34,29 @@ export interface Channel {
   state?: ChannelState;
 }
 
+export interface SuplaOAuthCredentials {
+  clientId: string;
+  clientSecret: string;
+  serverUrl: string;
+}
+
+export interface OAuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  accessTokenExpiresAt: number;
+}
+
+export const DEFAULT_REDIRECT_URI = 'http://localhost';
+export const DEFAULT_OAUTH_SCOPE = 'channels_r';
+
+interface TokenEndpointResponse {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  token_type: string;
+  scope: string;
+}
+
 export class SuplaApiError extends Error {
   constructor(
     message: string,
@@ -45,62 +68,106 @@ export class SuplaApiError extends Error {
   }
 }
 
-export class SuplaTokenError extends Error {
-  constructor(message: string) {
+export class SuplaOAuthError extends Error {
+  constructor(message: string, public readonly body?: string) {
     super(message);
-    this.name = 'SuplaTokenError';
+    this.name = 'SuplaOAuthError';
   }
 }
 
+export function normalizeServerUrl(url: string): string {
+  return url.trim().replace(/\/+$/, '');
+}
+
 export class SuplaClient {
-  private readonly baseUrl: string;
+  private readonly credentials: SuplaOAuthCredentials;
+  private accessToken: string | null;
+  private accessTokenExpiresAt: number;
+  private refreshToken: string;
+  private refreshingPromise: Promise<void> | null = null;
 
   constructor(
-    private readonly token: string,
-    explicitServerUrl?: string,
+    credentials: SuplaOAuthCredentials,
+    initialTokens: OAuthTokens,
+    private readonly onTokensUpdated?: (tokens: OAuthTokens) => void,
   ) {
-    if (!token || token.trim().length === 0) {
-      throw new SuplaTokenError('Empty access token');
-    }
-
-    const trimmed = explicitServerUrl?.trim();
-    if (trimmed) {
-      this.baseUrl = SuplaClient.normalizeUrl(trimmed);
-    } else {
-      this.baseUrl = SuplaClient.decodeServerFromToken(token);
-    }
+    this.credentials = {
+      ...credentials,
+      serverUrl: normalizeServerUrl(credentials.serverUrl),
+    };
+    this.accessToken = initialTokens.accessToken || null;
+    this.refreshToken = initialTokens.refreshToken;
+    this.accessTokenExpiresAt = initialTokens.accessTokenExpiresAt || 0;
   }
 
-  static decodeServerFromToken(token: string): string {
-    const parts = token.split('.');
-    if (parts.length !== 2) {
-      throw new SuplaTokenError(
-        'Invalid token format — expected "{tokenHex}.{base64Url}"',
+  static buildAuthorizeUrl(
+    credentials: SuplaOAuthCredentials,
+    state: string,
+    scope: string = DEFAULT_OAUTH_SCOPE,
+    redirectUri: string = DEFAULT_REDIRECT_URI,
+  ): string {
+    const base = normalizeServerUrl(credentials.serverUrl);
+    const params = new URLSearchParams({
+      client_id: credentials.clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope,
+      state,
+    });
+    return `${base}/oauth/v2/auth?${params.toString()}`;
+  }
+
+  static async exchangeCode(
+    credentials: SuplaOAuthCredentials,
+    code: string,
+    redirectUri: string = DEFAULT_REDIRECT_URI,
+  ): Promise<OAuthTokens> {
+    const base = normalizeServerUrl(credentials.serverUrl);
+    const body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
+      redirect_uri: redirectUri,
+    });
+
+    const res = await fetch(`${base}/oauth/v2/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      },
+      body,
+    });
+
+    const text = await res.text();
+    if (!res.ok) {
+      throw new SuplaOAuthError(
+        `Authorization code exchange failed: HTTP ${res.status}`,
+        text,
       );
     }
 
-    let decoded: string;
+    let data: TokenEndpointResponse;
     try {
-      decoded = Buffer.from(parts[1], 'base64').toString('utf-8').trim();
+      data = JSON.parse(text) as TokenEndpointResponse;
     } catch {
-      throw new SuplaTokenError('Failed to base64-decode the server segment of the token');
+      throw new SuplaOAuthError('Token endpoint returned invalid JSON', text);
     }
 
-    if (!/^https?:\/\//i.test(decoded)) {
-      throw new SuplaTokenError(
-        `Decoded server URL looks invalid: "${decoded}". Provide serverUrl manually.`,
-      );
+    if (!data.access_token || !data.refresh_token) {
+      throw new SuplaOAuthError('Token endpoint response missing tokens', text);
     }
 
-    return SuplaClient.normalizeUrl(decoded);
-  }
-
-  private static normalizeUrl(url: string): string {
-    return url.replace(/\/+$/, '');
+    return {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      accessTokenExpiresAt: Date.now() + data.expires_in * 1000,
+    };
   }
 
   getBaseUrl(): string {
-    return this.baseUrl;
+    return this.credentials.serverUrl;
   }
 
   async listElectricityMeters(): Promise<Channel[]> {
@@ -112,14 +179,83 @@ export class SuplaClient {
     return this.request<Channel>(`/api/v3/channels/${id}?include=state`);
   }
 
-  private async request<T>(path: string): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    const res = await fetch(url, {
+  private async ensureAccessToken(): Promise<string> {
+    const skewMs = 60_000;
+    if (this.accessToken && Date.now() < this.accessTokenExpiresAt - skewMs) {
+      return this.accessToken;
+    }
+    await this.refreshTokens();
+    if (!this.accessToken) {
+      throw new SuplaOAuthError('Access token unavailable after refresh');
+    }
+    return this.accessToken;
+  }
+
+  private async refreshTokens(): Promise<void> {
+    if (this.refreshingPromise) {
+      return this.refreshingPromise;
+    }
+
+    this.refreshingPromise = (async () => {
+      const body = new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: this.refreshToken,
+        client_id: this.credentials.clientId,
+        client_secret: this.credentials.clientSecret,
+      });
+
+      const res = await fetch(`${this.credentials.serverUrl}/oauth/v2/token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'application/json',
+        },
+        body,
+      });
+
+      const text = await res.text();
+      if (!res.ok) {
+        throw new SuplaOAuthError(
+          `Refresh token exchange failed: HTTP ${res.status}`,
+          text,
+        );
+      }
+
+      const data = JSON.parse(text) as TokenEndpointResponse;
+      this.accessToken = data.access_token;
+      this.accessTokenExpiresAt = Date.now() + data.expires_in * 1000;
+      if (data.refresh_token) {
+        this.refreshToken = data.refresh_token;
+      }
+
+      this.onTokensUpdated?.({
+        accessToken: this.accessToken,
+        refreshToken: this.refreshToken,
+        accessTokenExpiresAt: this.accessTokenExpiresAt,
+      });
+    })();
+
+    try {
+      await this.refreshingPromise;
+    } finally {
+      this.refreshingPromise = null;
+    }
+  }
+
+  private async request<T>(path: string, retryCount = 0): Promise<T> {
+    const token = await this.ensureAccessToken();
+    const res = await fetch(`${this.credentials.serverUrl}${path}`, {
       headers: {
-        Authorization: `Bearer ${this.token}`,
+        Authorization: `Bearer ${token}`,
         Accept: 'application/json',
       },
     });
+
+    if (res.status === 401 && retryCount === 0) {
+      this.accessToken = null;
+      this.accessTokenExpiresAt = 0;
+      return this.request<T>(path, 1);
+    }
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');

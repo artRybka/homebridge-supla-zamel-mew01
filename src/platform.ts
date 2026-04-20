@@ -1,3 +1,6 @@
+import { promises as fs } from 'fs';
+import * as path from 'path';
+
 import type {
   API,
   DynamicPlatformPlugin,
@@ -23,29 +26,44 @@ import {
 } from './settings';
 import {
   Channel,
+  OAuthTokens,
   SuplaApiError,
   SuplaClient,
-  SuplaTokenError,
+  SuplaOAuthCredentials,
+  SuplaOAuthError,
 } from './suplaClient';
 
 export type PresentationMode = 'combined' | 'perPhase';
 
 export interface SuplaMew01Config extends PlatformConfig {
-  accessToken?: string;
+  clientId?: string;
+  clientSecret?: string;
   serverUrl?: string;
+  refreshToken?: string;
+  accessToken?: string;
+  accessTokenExpiresAt?: number;
   pollInterval?: number;
   mode?: PresentationMode;
   channels?: number[];
 }
 
+interface TokenCacheFile {
+  clientId: string;
+  serverUrl: string;
+  tokens: OAuthTokens;
+}
+
+const TOKEN_CACHE_FILE = 'supla-mew01-tokens.json';
+
 export class SuplaMew01Platform implements DynamicPlatformPlugin {
   private readonly cachedAccessories = new Map<string, PlatformAccessory<AccessoryContext>>();
   private readonly activeAccessories = new Map<string, MeterAccessory>();
-  private readonly client: SuplaClient | null;
+  private client: SuplaClient | null = null;
   private readonly pollIntervalMs: number;
   private readonly mode: PresentationMode;
   private readonly explicitChannels: number[] | null;
   private readonly eve: EveCharacteristicSet;
+  private readonly tokenCachePath: string;
   private pollTimer: NodeJS.Timeout | null = null;
   private discoveryDone = false;
 
@@ -55,28 +73,7 @@ export class SuplaMew01Platform implements DynamicPlatformPlugin {
     public readonly api: API,
   ) {
     this.eve = buildEveCharacteristics(api);
-
-    const token = (config.accessToken ?? '').trim();
-    const serverUrl = (config.serverUrl ?? '').trim() || undefined;
-
-    if (!token) {
-      this.log.error(
-        'No accessToken configured. Open the plugin settings in Config UI X and paste your Supla PAT.',
-      );
-      this.client = null;
-    } else {
-      try {
-        this.client = new SuplaClient(token, serverUrl);
-        this.log.info(`Supla server: ${this.client.getBaseUrl()}`);
-      } catch (e) {
-        if (e instanceof SuplaTokenError) {
-          this.log.error(`Invalid Supla token: ${e.message}`);
-        } else {
-          this.log.error(`Failed to initialise Supla client: ${(e as Error).message}`);
-        }
-        this.client = null;
-      }
-    }
+    this.tokenCachePath = path.join(api.user.storagePath(), TOKEN_CACHE_FILE);
 
     const interval = Math.max(
       MIN_POLL_INTERVAL_SECONDS,
@@ -106,15 +103,87 @@ export class SuplaMew01Platform implements DynamicPlatformPlugin {
   }
 
   private async didFinishLaunching(): Promise<void> {
+    this.client = await this.initClient();
     if (!this.client) {
-      this.log.warn('Skipping discovery — Supla client not initialised.');
+      this.log.warn('Skipping discovery — Supla client not initialised. Open plugin settings in Config UI X.');
       return;
     }
+
+    this.log.info(`Supla server: ${this.client.getBaseUrl()}`);
 
     await this.tick();
     this.pollTimer = setInterval(() => {
       void this.tick();
     }, this.pollIntervalMs);
+  }
+
+  private async initClient(): Promise<SuplaClient | null> {
+    const credentials = this.credentialsFromConfig();
+    if (!credentials) return null;
+
+    const cached = await this.readTokenCache();
+    const isSameIdentity = cached
+      && cached.clientId === credentials.clientId
+      && cached.serverUrl === credentials.serverUrl;
+
+    let initial: OAuthTokens;
+    if (isSameIdentity && cached) {
+      initial = cached.tokens;
+      this.log.debug('Loaded cached OAuth tokens from disk.');
+    } else {
+      const refreshToken = (this.config.refreshToken ?? '').trim();
+      if (!refreshToken) {
+        this.log.error('Missing refresh token. Authorize the plugin in Config UI X.');
+        return null;
+      }
+      initial = {
+        refreshToken,
+        accessToken: (this.config.accessToken ?? '').trim(),
+        accessTokenExpiresAt: Number(this.config.accessTokenExpiresAt) || 0,
+      };
+    }
+
+    return new SuplaClient(
+      credentials,
+      initial,
+      (tokens) => this.onTokensUpdated(credentials, tokens),
+    );
+  }
+
+  private credentialsFromConfig(): SuplaOAuthCredentials | null {
+    const clientId = (this.config.clientId ?? '').trim();
+    const clientSecret = (this.config.clientSecret ?? '').trim();
+    const serverUrl = (this.config.serverUrl ?? '').trim();
+
+    if (!clientId || !clientSecret || !serverUrl) {
+      this.log.error('Missing OAuth credentials. Open the plugin settings in Config UI X and complete authorization.');
+      return null;
+    }
+
+    return { clientId, clientSecret, serverUrl: serverUrl.replace(/\/+$/, '') };
+  }
+
+  private async readTokenCache(): Promise<TokenCacheFile | null> {
+    try {
+      const raw = await fs.readFile(this.tokenCachePath, 'utf-8');
+      return JSON.parse(raw) as TokenCacheFile;
+    } catch {
+      return null;
+    }
+  }
+
+  private async onTokensUpdated(credentials: SuplaOAuthCredentials, tokens: OAuthTokens): Promise<void> {
+    const payload: TokenCacheFile = {
+      clientId: credentials.clientId,
+      serverUrl: credentials.serverUrl,
+      tokens,
+    };
+    try {
+      await fs.writeFile(this.tokenCachePath, JSON.stringify(payload, null, 2), 'utf-8');
+      this.log.debug('Persisted rotated OAuth tokens to disk.');
+    } catch (e) {
+      this.log.warn(`Failed to persist token cache: ${(e as Error).message}`);
+    }
   }
 
   private async tick(): Promise<void> {
@@ -126,6 +195,8 @@ export class SuplaMew01Platform implements DynamicPlatformPlugin {
     } catch (e) {
       if (e instanceof SuplaApiError) {
         this.log.warn(`Supla API ${e.status}: ${e.message}`);
+      } else if (e instanceof SuplaOAuthError) {
+        this.log.error(`OAuth error: ${e.message}${e.body ? ` (${e.body})` : ''}`);
       } else {
         this.log.warn(`Polling error: ${(e as Error).message}`);
       }
