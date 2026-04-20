@@ -1,0 +1,39 @@
+{
+  "name": "homebridge-supla-mew01",
+  "displayName": "Homebridge Supla MEW-01",
+  "version": "0.1.0",
+  "description": "Homebridge plugin exposing Zamel MEW-01 / LEW-01 energy meters from Supla Cloud as Eve-compatible HomeKit accessories.",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=18.0.0",
+    "homebridge": ">=1.8.0 || >=2.0.0-beta"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "probe": "tsx scripts/probe.ts",
+    "lint": "eslint src/**/*.ts scripts/**/*.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "homebridge-plugin",
+    "supla",
+    "zamel",
+    "mew-01",
+    "lew-01",
+    "energy-meter",
+    "eve"
+  ],
+  "dependencies": {
+    "@homebridge/plugin-ui-utils": "^2.0.0",
+    "fakegato-history": "^0.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "eslint": "^8.57.0",
+    "homebridge": "^1.8.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}
