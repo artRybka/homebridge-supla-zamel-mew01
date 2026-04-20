@@ -5,6 +5,13 @@
   "description": "Homebridge plugin exposing Zamel MEW-01 / LEW-01 energy meters from Supla Cloud as Eve-compatible HomeKit accessories.",
   "license": "MIT",
   "main": "dist/index.js",
+  "files": [
+    "dist",
+    "homebridge-ui",
+    "config.schema.json",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=18.0.0",
     "homebridge": ">=1.8.0 || >=2.0.0-beta"

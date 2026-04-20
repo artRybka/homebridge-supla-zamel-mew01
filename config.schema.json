@@ -1,0 +1,51 @@
+{
+  "pluginAlias": "SuplaMew01",
+  "pluginType": "platform",
+  "singular": false,
+  "customUi": true,
+  "headerDisplay": "**All configuration is done via the UI above.** Energy data is visible only in the **Eve for HomeKit** app — Apple Home does not display power/energy characteristics.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Platform name",
+        "type": "string",
+        "default": "Supla MEW-01",
+        "required": true
+      },
+      "accessToken": {
+        "title": "Supla Personal Access Token",
+        "type": "string",
+        "required": true,
+        "description": "Generate in Supla Cloud: My account → Integrations → Personal access tokens. Required scope: channels_r."
+      },
+      "serverUrl": {
+        "title": "Supla server URL (auto-detected)",
+        "type": "string",
+        "condition": { "functionBody": "return false;" }
+      },
+      "pollInterval": {
+        "title": "Poll interval (seconds)",
+        "type": "integer",
+        "default": 30,
+        "minimum": 10,
+        "maximum": 600
+      },
+      "mode": {
+        "title": "Presentation mode",
+        "type": "string",
+        "default": "combined",
+        "oneOf": [
+          { "title": "Single accessory (sum of all phases)", "enum": ["combined"] },
+          { "title": "Separate accessory per phase (L1, L2, L3)", "enum": ["perPhase"] }
+        ]
+      },
+      "channels": {
+        "title": "Channel IDs",
+        "type": "array",
+        "items": { "type": "integer" },
+        "condition": { "functionBody": "return false;" }
+      }
+    }
+  }
+}
