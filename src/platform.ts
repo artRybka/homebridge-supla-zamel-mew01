@@ -7,6 +7,15 @@ import type {
 } from 'homebridge';
 
 import {
+  AccessoryContext,
+  AccessoryKind,
+  MeterAccessory,
+} from './accessory';
+import {
+  buildEveCharacteristics,
+  type EveCharacteristicSet,
+} from './eveCharacteristics';
+import {
   DEFAULT_POLL_INTERVAL_SECONDS,
   MIN_POLL_INTERVAL_SECONDS,
   PLATFORM_NAME,
@@ -30,18 +39,23 @@ export interface SuplaMew01Config extends PlatformConfig {
 }
 
 export class SuplaMew01Platform implements DynamicPlatformPlugin {
-  private readonly cachedAccessories: PlatformAccessory[] = [];
+  private readonly cachedAccessories = new Map<string, PlatformAccessory<AccessoryContext>>();
+  private readonly activeAccessories = new Map<string, MeterAccessory>();
   private readonly client: SuplaClient | null;
   private readonly pollIntervalMs: number;
   private readonly mode: PresentationMode;
   private readonly explicitChannels: number[] | null;
+  private readonly eve: EveCharacteristicSet;
   private pollTimer: NodeJS.Timeout | null = null;
+  private discoveryDone = false;
 
   constructor(
     public readonly log: Logging,
     public readonly config: SuplaMew01Config,
     public readonly api: API,
   ) {
+    this.eve = buildEveCharacteristics(api);
+
     const token = (config.accessToken ?? '').trim();
     const serverUrl = (config.serverUrl ?? '').trim() || undefined;
 
@@ -69,7 +83,6 @@ export class SuplaMew01Platform implements DynamicPlatformPlugin {
       Number(config.pollInterval) || DEFAULT_POLL_INTERVAL_SECONDS,
     );
     this.pollIntervalMs = interval * 1000;
-
     this.mode = config.mode === 'perPhase' ? 'perPhase' : 'combined';
 
     const channels = Array.isArray(config.channels) ? config.channels.filter(Number.isFinite) : [];
@@ -89,7 +102,7 @@ export class SuplaMew01Platform implements DynamicPlatformPlugin {
 
   configureAccessory(accessory: PlatformAccessory): void {
     this.log.debug(`Loading cached accessory: ${accessory.displayName} (${accessory.UUID})`);
-    this.cachedAccessories.push(accessory);
+    this.cachedAccessories.set(accessory.UUID, accessory as PlatformAccessory<AccessoryContext>);
   }
 
   private async didFinishLaunching(): Promise<void> {
@@ -98,33 +111,40 @@ export class SuplaMew01Platform implements DynamicPlatformPlugin {
       return;
     }
 
-    await this.discoverAndPoll();
+    await this.tick();
     this.pollTimer = setInterval(() => {
-      void this.discoverAndPoll();
+      void this.tick();
     }, this.pollIntervalMs);
   }
 
-  private async discoverAndPoll(): Promise<void> {
+  private async tick(): Promise<void> {
     if (!this.client) return;
 
+    let meters: Channel[];
     try {
-      const meters = await this.fetchMeters();
-      this.log.info(
-        `Polled ${meters.length} meter(s) (mode=${this.mode}, interval=${this.pollIntervalMs / 1000}s).`,
-      );
-      // Accessory registration / beat() dispatch lands in the next commit.
-      for (const m of meters) {
-        const phases = m.state?.phases?.length ?? 0;
-        const connected = m.state?.connected ?? false;
-        this.log.debug(
-          `  channel=${m.id} caption="${m.caption ?? ''}" phases=${phases} connected=${connected}`,
-        );
-      }
+      meters = await this.fetchMeters();
     } catch (e) {
       if (e instanceof SuplaApiError) {
         this.log.warn(`Supla API ${e.status}: ${e.message}`);
       } else {
         this.log.warn(`Polling error: ${(e as Error).message}`);
+      }
+      return;
+    }
+
+    if (!this.discoveryDone) {
+      this.syncAccessories(meters);
+      this.discoveryDone = true;
+    }
+
+    for (const channel of meters) {
+      const contexts = this.contextsForChannel(channel);
+      for (const ctx of contexts) {
+        const uuid = this.api.hap.uuid.generate(MeterAccessory.uuidSeedFor(ctx));
+        const accessory = this.activeAccessories.get(uuid);
+        if (accessory) {
+          accessory.beat(channel);
+        }
       }
     }
   }
@@ -147,8 +167,53 @@ export class SuplaMew01Platform implements DynamicPlatformPlugin {
     return this.client.listElectricityMeters();
   }
 
-  // Helpers exposed for future accessory registration.
-  getPluginIdentity(): { pluginName: string; platformName: string } {
-    return { pluginName: PLUGIN_NAME, platformName: PLATFORM_NAME };
+  private syncAccessories(meters: Channel[]): void {
+    const desiredUuids = new Set<string>();
+
+    for (const channel of meters) {
+      const contexts = this.contextsForChannel(channel);
+      for (const ctx of contexts) {
+        const uuid = this.api.hap.uuid.generate(MeterAccessory.uuidSeedFor(ctx));
+        desiredUuids.add(uuid);
+
+        const cached = this.cachedAccessories.get(uuid);
+        const displayName = MeterAccessory.displayNameFor(channel, ctx);
+
+        if (cached) {
+          cached.context = ctx;
+          cached.displayName = displayName;
+          this.api.updatePlatformAccessories([cached]);
+          this.activeAccessories.set(uuid, new MeterAccessory(this.api, this.log, cached, this.eve));
+          this.log.info(`Restored accessory from cache: ${displayName}`);
+        } else {
+          const accessory = new this.api.platformAccessory<AccessoryContext>(displayName, uuid);
+          accessory.context = ctx;
+          this.activeAccessories.set(uuid, new MeterAccessory(this.api, this.log, accessory, this.eve));
+          this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+          this.log.info(`Registered new accessory: ${displayName}`);
+        }
+      }
+    }
+
+    for (const [uuid, cached] of this.cachedAccessories) {
+      if (!desiredUuids.has(uuid)) {
+        this.log.info(`Unregistering orphaned accessory: ${cached.displayName}`);
+        this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [cached]);
+        this.cachedAccessories.delete(uuid);
+      }
+    }
+  }
+
+  private contextsForChannel(channel: Channel): AccessoryContext[] {
+    if (this.mode === 'combined') {
+      return [{ channelId: channel.id, kind: 'combined' as AccessoryKind }];
+    }
+
+    const phases = channel.state?.phases ?? [];
+    return phases.map<AccessoryContext>((p) => ({
+      channelId: channel.id,
+      kind: 'phase' as AccessoryKind,
+      phaseNumber: p.number,
+    }));
   }
 }
