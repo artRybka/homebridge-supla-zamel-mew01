@@ -21,7 +21,6 @@
     "watch": "tsc --watch",
     "probe": "tsx scripts/probe.ts",
     "lint": "eslint src/**/*.ts scripts/**/*.ts",
-    "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
