@@ -1,1 +1,0 @@
-# homebridge-supla-zamel-mew01
