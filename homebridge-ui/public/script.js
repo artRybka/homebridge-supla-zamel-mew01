@@ -96,7 +96,15 @@ async function onExchange() {
     });
     state.tokens = result.tokens;
     markStepDone('step2', 'authorized');
-    homebridge.toast.success('Authorization successful. Refresh token stored.');
+    if (state.tokens.refreshToken) {
+      homebridge.toast.success('Authorization successful. Refresh token stored.');
+    } else {
+      const hours = Math.round((state.tokens.accessTokenExpiresAt - Date.now()) / 1000 / 3600 * 10) / 10;
+      homebridge.toast.warning(
+        `Authorized, but Supla did not issue a refresh token. Access token valid for ~${hours}h — ` +
+        'you will need to re-authorize when it expires.'
+      );
+    }
   } catch (e) {
     homebridge.toast.error(e.message || 'Exchange failed.');
   } finally {
@@ -106,7 +114,7 @@ async function onExchange() {
 }
 
 async function onTestConnection() {
-  if (!state.tokens || !state.tokens.refreshToken) {
+  if (!state.tokens || (!state.tokens.refreshToken && !state.tokens.accessToken)) {
     homebridge.toast.error('Authorize with Supla (step 2) first.');
     return;
   }
@@ -189,7 +197,7 @@ async function onSave() {
     homebridge.toast.error('Step 1 fields (Server URL, Client ID, Secret) are required.');
     return;
   }
-  if (!state.tokens || !state.tokens.refreshToken) {
+  if (!state.tokens || (!state.tokens.refreshToken && !state.tokens.accessToken)) {
     homebridge.toast.error('Authorize with Supla (step 2) before saving.');
     return;
   }
@@ -202,7 +210,7 @@ async function onSave() {
     serverUrl: serverUrl.replace(/\/+$/, ''),
     clientId: creds.clientId,
     clientSecret: creds.clientSecret,
-    refreshToken: state.tokens.refreshToken,
+    refreshToken: state.tokens.refreshToken || '',
     accessToken: state.tokens.accessToken || '',
     accessTokenExpiresAt: state.tokens.accessTokenExpiresAt || 0,
     pollInterval: Number($('pollInterval').value) || 30,

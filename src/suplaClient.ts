@@ -42,19 +42,20 @@ export interface SuplaOAuthCredentials {
 
 export interface OAuthTokens {
   accessToken: string;
-  refreshToken: string;
+  refreshToken: string | null;
   accessTokenExpiresAt: number;
 }
 
 export const DEFAULT_REDIRECT_URI = 'http://localhost';
-export const DEFAULT_OAUTH_SCOPE = 'channels_r';
+export const DEFAULT_OAUTH_SCOPE = 'channels_r offline_access';
 
 interface TokenEndpointResponse {
   access_token: string;
-  refresh_token: string;
+  refresh_token?: string;
   expires_in: number;
   token_type: string;
   scope: string;
+  target_url?: string;
 }
 
 export class SuplaApiError extends Error {
@@ -83,7 +84,7 @@ export class SuplaClient {
   private readonly credentials: SuplaOAuthCredentials;
   private accessToken: string | null;
   private accessTokenExpiresAt: number;
-  private refreshToken: string;
+  private refreshToken: string | null;
   private refreshingPromise: Promise<void> | null = null;
 
   constructor(
@@ -96,7 +97,7 @@ export class SuplaClient {
       serverUrl: normalizeServerUrl(credentials.serverUrl),
     };
     this.accessToken = initialTokens.accessToken || null;
-    this.refreshToken = initialTokens.refreshToken;
+    this.refreshToken = initialTokens.refreshToken ?? null;
     this.accessTokenExpiresAt = initialTokens.accessTokenExpiresAt || 0;
   }
 
@@ -183,14 +184,14 @@ export class SuplaClient {
       throw new SuplaOAuthError('Token endpoint returned invalid JSON', resp.text);
     }
 
-    if (!data.access_token || !data.refresh_token) {
-      throw new SuplaOAuthError('Token endpoint response missing tokens', resp.text);
+    if (!data.access_token) {
+      throw new SuplaOAuthError('Token endpoint response missing access_token', resp.text);
     }
 
     return {
       accessToken: data.access_token,
-      refreshToken: data.refresh_token,
-      accessTokenExpiresAt: Date.now() + data.expires_in * 1000,
+      refreshToken: data.refresh_token ?? null,
+      accessTokenExpiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
     };
   }
 
@@ -224,10 +225,18 @@ export class SuplaClient {
       return this.refreshingPromise;
     }
 
+    if (!this.refreshToken) {
+      throw new SuplaOAuthError(
+        'Access token expired and no refresh token available. Re-authorize the plugin in Config UI X.',
+      );
+    }
+
+    const refreshToken = this.refreshToken;
+
     this.refreshingPromise = (async () => {
       const tokens = await SuplaClient.tokenRequest(this.credentials, {
         grant_type: 'refresh_token',
-        refresh_token: this.refreshToken,
+        refresh_token: refreshToken,
       });
 
       this.accessToken = tokens.accessToken;

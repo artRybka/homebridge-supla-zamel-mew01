@@ -91,14 +91,14 @@ class UiServer extends HomebridgePluginUiServer {
   async testConnection(payload) {
     const credentials = this.validateCredentials(payload);
     const tokens = payload?.tokens;
-    if (!tokens || !tokens.refreshToken) {
+    if (!tokens || (!tokens.refreshToken && !tokens.accessToken)) {
       throw new RequestError('Authorize with Supla first to obtain tokens.', { status: 400 });
     }
 
     const { SuplaClient, SuplaApiError, SuplaOAuthError } = this.loadSuplaModule();
     const client = new SuplaClient(credentials, {
       accessToken: tokens.accessToken || '',
-      refreshToken: tokens.refreshToken,
+      refreshToken: tokens.refreshToken || null,
       accessTokenExpiresAt: tokens.accessTokenExpiresAt || 0,
     });
 

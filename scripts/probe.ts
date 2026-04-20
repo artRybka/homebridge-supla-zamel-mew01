@@ -59,8 +59,8 @@ async function main(): Promise<void> {
       tokens = await SuplaClient.exchangeCode(credentials, authCode, DEFAULT_REDIRECT_URI);
       console.error('Exchanged authorization code for tokens:');
       console.error(JSON.stringify({
-        refreshToken: tokens.refreshToken,
-        expiresAt: new Date(tokens.accessTokenExpiresAt).toISOString(),
+        refreshToken: tokens.refreshToken ?? '(not issued — re-authorize when access_token expires)',
+        accessTokenExpiresAt: new Date(tokens.accessTokenExpiresAt).toISOString(),
       }, null, 2));
     } catch (e) {
       if (e instanceof SuplaOAuthError) {
@@ -72,7 +72,7 @@ async function main(): Promise<void> {
       process.exit(1);
     }
   } else if (refreshToken) {
-    tokens = { accessToken: '', refreshToken, accessTokenExpiresAt: 0 };
+    tokens = { accessToken: '', refreshToken: refreshToken as string | null, accessTokenExpiresAt: 0 };
   } else {
     console.error('Provide either SUPLA_AUTH_CODE (first-time) or SUPLA_REFRESH_TOKEN (subsequent runs).');
     process.exit(1);

@@ -4,7 +4,7 @@ exports.SuplaClient = exports.SuplaOAuthError = exports.SuplaApiError = exports.
 exports.normalizeServerUrl = normalizeServerUrl;
 const settings_1 = require("./settings");
 exports.DEFAULT_REDIRECT_URI = 'http://localhost';
-exports.DEFAULT_OAUTH_SCOPE = 'channels_r';
+exports.DEFAULT_OAUTH_SCOPE = 'channels_r offline_access';
 class SuplaApiError extends Error {
     status;
     body;
@@ -42,7 +42,7 @@ class SuplaClient {
             serverUrl: normalizeServerUrl(credentials.serverUrl),
         };
         this.accessToken = initialTokens.accessToken || null;
-        this.refreshToken = initialTokens.refreshToken;
+        this.refreshToken = initialTokens.refreshToken ?? null;
         this.accessTokenExpiresAt = initialTokens.accessTokenExpiresAt || 0;
     }
     static buildAuthorizeUrl(credentials, state, scope = exports.DEFAULT_OAUTH_SCOPE, redirectUri = exports.DEFAULT_REDIRECT_URI) {
@@ -105,13 +105,13 @@ class SuplaClient {
         catch {
             throw new SuplaOAuthError('Token endpoint returned invalid JSON', resp.text);
         }
-        if (!data.access_token || !data.refresh_token) {
-            throw new SuplaOAuthError('Token endpoint response missing tokens', resp.text);
+        if (!data.access_token) {
+            throw new SuplaOAuthError('Token endpoint response missing access_token', resp.text);
         }
         return {
             accessToken: data.access_token,
-            refreshToken: data.refresh_token,
-            accessTokenExpiresAt: Date.now() + data.expires_in * 1000,
+            refreshToken: data.refresh_token ?? null,
+            accessTokenExpiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
         };
     }
     getBaseUrl() {
@@ -139,10 +139,14 @@ class SuplaClient {
         if (this.refreshingPromise) {
             return this.refreshingPromise;
         }
+        if (!this.refreshToken) {
+            throw new SuplaOAuthError('Access token expired and no refresh token available. Re-authorize the plugin in Config UI X.');
+        }
+        const refreshToken = this.refreshToken;
         this.refreshingPromise = (async () => {
             const tokens = await SuplaClient.tokenRequest(this.credentials, {
                 grant_type: 'refresh_token',
-                refresh_token: this.refreshToken,
+                refresh_token: refreshToken,
             });
             this.accessToken = tokens.accessToken;
             this.accessTokenExpiresAt = tokens.accessTokenExpiresAt;

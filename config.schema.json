@@ -34,7 +34,16 @@
       "refreshToken": {
         "title": "OAuth Refresh Token",
         "type": "string",
-        "required": true,
+        "condition": { "functionBody": "return false;" }
+      },
+      "accessToken": {
+        "title": "OAuth Access Token",
+        "type": "string",
+        "condition": { "functionBody": "return false;" }
+      },
+      "accessTokenExpiresAt": {
+        "title": "Access Token Expiry",
+        "type": "integer",
         "condition": { "functionBody": "return false;" }
       },
       "pollInterval": {

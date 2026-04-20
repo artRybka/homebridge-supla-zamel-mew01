@@ -106,16 +106,22 @@ class SuplaMew01Platform {
             this.log.debug('Loaded cached OAuth tokens from disk.');
         }
         else {
-            const refreshToken = (this.config.refreshToken ?? '').trim();
-            if (!refreshToken) {
-                this.log.error('Missing refresh token. Authorize the plugin in Config UI X.');
+            const refreshToken = (this.config.refreshToken ?? '').trim() || null;
+            const accessToken = (this.config.accessToken ?? '').trim();
+            if (!refreshToken && !accessToken) {
+                this.log.error('Missing OAuth tokens. Authorize the plugin in Config UI X.');
                 return null;
             }
             initial = {
                 refreshToken,
-                accessToken: (this.config.accessToken ?? '').trim(),
+                accessToken,
                 accessTokenExpiresAt: Number(this.config.accessTokenExpiresAt) || 0,
             };
+        }
+        if (!initial.refreshToken) {
+            const expiresIn = Math.max(0, Math.floor((initial.accessTokenExpiresAt - Date.now()) / 1000));
+            this.log.warn(`Supla did not issue a refresh token for this OAuth app. Access token expires in ~${expiresIn}s — ` +
+                're-authorize in Config UI X when that happens.');
         }
         return new suplaClient_1.SuplaClient(credentials, initial, (tokens) => this.onTokensUpdated(credentials, tokens));
     }

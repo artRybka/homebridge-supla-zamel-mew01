@@ -35,11 +35,11 @@ export interface SuplaOAuthCredentials {
 }
 export interface OAuthTokens {
     accessToken: string;
-    refreshToken: string;
+    refreshToken: string | null;
     accessTokenExpiresAt: number;
 }
 export declare const DEFAULT_REDIRECT_URI = "http://localhost";
-export declare const DEFAULT_OAUTH_SCOPE = "channels_r";
+export declare const DEFAULT_OAUTH_SCOPE = "channels_r offline_access";
 export declare class SuplaApiError extends Error {
     readonly status: number;
     readonly body: string;
