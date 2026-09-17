@@ -27,7 +27,7 @@ class MeterAccessory {
             .setCharacteristic(api.hap.Characteristic.Manufacturer, 'Zamel')
             .setCharacteristic(api.hap.Characteristic.Model, ctx.kind === 'phase' ? 'MEW-01 (per phase)' : 'MEW-01')
             .setCharacteristic(api.hap.Characteristic.SerialNumber, MeterAccessory.serialFor(ctx))
-            .setCharacteristic(api.hap.Characteristic.FirmwareRevision, '0.1.0');
+            .setCharacteristic(api.hap.Characteristic.FirmwareRevision, '0.2.0');
         this.outlet = accessory.getService(api.hap.Service.Outlet)
             ?? accessory.addService(api.hap.Service.Outlet, accessory.displayName);
         this.outlet.getCharacteristic(api.hap.Characteristic.On)
