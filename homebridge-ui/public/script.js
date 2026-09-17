@@ -7,6 +7,8 @@ const state = {
   meters: [],
   selectedChannelIds: new Set(),
   discoveredServerUrl: '',
+  // channelId -> { phaseLabels: string[3], enabledPhases: number[] }
+  overridesById: {},
 };
 
 (async function init() {
@@ -21,9 +23,9 @@ const state = {
     if (cfg.pollInterval) $('pollInterval').value = cfg.pollInterval;
     if (cfg.mode) $('mode').value = cfg.mode;
 
-    if (cfg.refreshToken) {
+    if (cfg.refreshToken || cfg.accessToken) {
       state.tokens = {
-        refreshToken: cfg.refreshToken,
+        refreshToken: cfg.refreshToken || '',
         accessToken: cfg.accessToken || '',
         accessTokenExpiresAt: cfg.accessTokenExpiresAt || 0,
       };
@@ -33,6 +35,16 @@ const state = {
     if (Array.isArray(cfg.channels)) {
       cfg.channels.forEach((id) => state.selectedChannelIds.add(Number(id)));
     }
+
+    if (Array.isArray(cfg.meterOverrides)) {
+      for (const o of cfg.meterOverrides) {
+        if (!o || !Number.isFinite(o.channelId)) continue;
+        state.overridesById[o.channelId] = {
+          phaseLabels: Array.isArray(o.phaseLabels) ? o.phaseLabels.slice(0, 3) : ['', '', ''],
+          enabledPhases: Array.isArray(o.enabledPhases) ? o.enabledPhases.slice() : null,
+        };
+      }
+    }
   } catch (e) {
     homebridge.toast.error(`Failed to load config: ${e.message || e}`);
   }
@@ -41,6 +53,7 @@ const state = {
   $('exchangeBtn').addEventListener('click', onExchange);
   $('testBtn').addEventListener('click', onTestConnection);
   $('saveBtn').addEventListener('click', onSave);
+  $('meterList').addEventListener('change', onMeterListChange);
 })();
 
 function markStepDone(stepId, label) {
@@ -144,6 +157,17 @@ async function onTestConnection() {
   }
 }
 
+function ensureOverride(channelId, phaseCount) {
+  let o = state.overridesById[channelId];
+  if (!o) {
+    o = { phaseLabels: ['', '', ''], enabledPhases: null };
+    state.overridesById[channelId] = o;
+  }
+  if (!Array.isArray(o.phaseLabels)) o.phaseLabels = ['', '', ''];
+  while (o.phaseLabels.length < phaseCount) o.phaseLabels.push('');
+  return o;
+}
+
 function renderMeterList() {
   const container = $('meterList');
   if (!state.meters.length) {
@@ -156,13 +180,46 @@ function renderMeterList() {
     const badge = m.connected
       ? '<span class="badge online">online</span>'
       : '<span class="badge offline">offline</span>';
+
+    const phaseCount = Math.max(1, Math.min(3, m.phaseCount || 3));
+    const override = ensureOverride(m.id, phaseCount);
+    const enabledSet = override.enabledPhases && override.enabledPhases.length > 0
+      ? new Set(override.enabledPhases)
+      : null;
+
+    const phaseFields = [];
+    for (let i = 1; i <= phaseCount; i++) {
+      const label = override.phaseLabels[i - 1] || '';
+      const on = enabledSet ? enabledSet.has(i) : true;
+      phaseFields.push(`
+        <div class="phase-row">
+          <label class="phase-toggle">
+            <input type="checkbox" data-role="phase-enable" data-channel-id="${m.id}" data-phase="${i}" ${on ? 'checked' : ''} />
+            L${i}
+          </label>
+          <input type="text" class="phase-name" data-role="phase-label" data-channel-id="${m.id}" data-phase="${i}"
+                 placeholder="e.g. Kitchen" value="${escapeAttr(label)}" />
+        </div>
+      `);
+    }
+
     return `
       <tr>
-        <td><input type="checkbox" data-channel-id="${m.id}" ${checked} /></td>
+        <td><input type="checkbox" data-role="meter-select" data-channel-id="${m.id}" ${checked} /></td>
         <td>${escapeHtml(m.caption)}</td>
         <td>${m.id}</td>
         <td>${m.phaseCount}-phase</td>
         <td>${badge}</td>
+      </tr>
+      <tr class="phase-config-row">
+        <td></td>
+        <td colspan="4">
+          <details>
+            <summary>Phase names &amp; toggles</summary>
+            <div class="phase-grid">${phaseFields.join('')}</div>
+            <div class="hint">Uncheck a phase to hide it (per-phase mode) or exclude it from the sum (combined mode). Names apply in per-phase mode as accessory display names.</div>
+          </details>
+        </td>
       </tr>
     `;
   }).join('');
@@ -175,20 +232,52 @@ function renderMeterList() {
       <tbody>${rows}</tbody>
     </table>
   `;
+}
 
-  container.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
-    cb.addEventListener('change', (ev) => {
-      const id = Number(ev.target.dataset.channelId);
-      if (ev.target.checked) state.selectedChannelIds.add(id);
-      else state.selectedChannelIds.delete(id);
-    });
-  });
+function onMeterListChange(ev) {
+  const target = ev.target;
+  const role = target.dataset && target.dataset.role;
+  if (!role) return;
+  const channelId = Number(target.dataset.channelId);
+  if (!channelId) return;
+
+  if (role === 'meter-select') {
+    if (target.checked) state.selectedChannelIds.add(channelId);
+    else state.selectedChannelIds.delete(channelId);
+    return;
+  }
+
+  const phaseCount = 3;
+  const override = ensureOverride(channelId, phaseCount);
+
+  if (role === 'phase-enable') {
+    const phase = Number(target.dataset.phase);
+    const current = new Set(
+      override.enabledPhases && override.enabledPhases.length > 0
+        ? override.enabledPhases
+        : [1, 2, 3].slice(0, phaseCount),
+    );
+    if (target.checked) current.add(phase);
+    else current.delete(phase);
+    override.enabledPhases = Array.from(current).sort();
+    if (override.enabledPhases.length === 0) {
+      // Never save an empty enable list — reset to "all off explicitly".
+      override.enabledPhases = [];
+    }
+  } else if (role === 'phase-label') {
+    const phase = Number(target.dataset.phase);
+    override.phaseLabels[phase - 1] = target.value;
+  }
 }
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (ch) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[ch]));
+}
+
+function escapeAttr(s) {
+  return escapeHtml(s);
 }
 
 async function onSave() {
@@ -220,6 +309,25 @@ async function onSave() {
   if (state.selectedChannelIds.size > 0) {
     config.channels = Array.from(state.selectedChannelIds).sort((a, b) => a - b);
   }
+
+  const overrides = [];
+  for (const [channelId, o] of Object.entries(state.overridesById)) {
+    const id = Number(channelId);
+    const labels = Array.isArray(o.phaseLabels) ? o.phaseLabels.map((s) => String(s || '').trim()) : [];
+    const hasLabel = labels.some((s) => s.length > 0);
+    const enabled = Array.isArray(o.enabledPhases) ? o.enabledPhases : null;
+    const allPhases = [1, 2, 3];
+    const restrictsPhases = enabled !== null
+      && enabled.length !== allPhases.length
+      && !allPhases.every((p) => enabled.includes(p));
+    if (hasLabel || restrictsPhases) {
+      const entry = { channelId: id };
+      if (hasLabel) entry.phaseLabels = labels;
+      if (restrictsPhases) entry.enabledPhases = enabled;
+      overrides.push(entry);
+    }
+  }
+  if (overrides.length > 0) config.meterOverrides = overrides;
 
   try {
     await homebridge.updatePluginConfig([config]);

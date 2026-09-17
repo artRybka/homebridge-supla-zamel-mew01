@@ -6,6 +6,10 @@ export interface AccessoryContext {
     channelId: number;
     kind: AccessoryKind;
     phaseNumber?: 1 | 2 | 3;
+    /** Override display name for this accessory (e.g. user-supplied phase label). */
+    customLabel?: string;
+    /** Combined mode only: phases whose values are summed / averaged. Undefined = all. */
+    enabledPhases?: number[];
 }
 export declare class MeterAccessory {
     private readonly api;

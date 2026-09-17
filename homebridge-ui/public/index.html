@@ -43,6 +43,14 @@
     .badge.online { background: #c8e6c9; color: #1b5e20; }
     .badge.offline { background: #ffcdd2; color: #b71c1c; }
     .badge.ok { background: #c8e6c9; color: #1b5e20; margin-left: 8px; }
+    .phase-config-row td { padding: 0 8px 8px 32px; background: #fafafa; border-bottom: 1px solid #eee; }
+    .phase-config-row details { font-size: 13px; }
+    .phase-config-row summary { cursor: pointer; padding: 6px 0; color: #1976d2; }
+    .phase-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; margin-top: 6px; }
+    .phase-row { display: flex; gap: 8px; align-items: center; }
+    .phase-row .phase-toggle { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; min-width: 44px; }
+    .phase-row .phase-name { flex: 1; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
+    .phase-config-row .hint { font-size: 11px; color: #777; margin-top: 6px; }
     .footer { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; gap: 12px; }
     .empty { padding: 16px; color: #888; text-align: center; font-style: italic; }
     code { background: #eee; padding: 1px 5px; border-radius: 3px; font-size: 12px; }

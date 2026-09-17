@@ -51,6 +51,7 @@ class SuplaMew01Platform {
     pollIntervalMs;
     mode;
     explicitChannels;
+    overridesByChannel = new Map();
     eve;
     tokenCachePath;
     pollTimer = null;
@@ -66,6 +67,18 @@ class SuplaMew01Platform {
         this.mode = config.mode === 'perPhase' ? 'perPhase' : 'combined';
         const channels = Array.isArray(config.channels) ? config.channels.filter(Number.isFinite) : [];
         this.explicitChannels = channels.length > 0 ? channels : null;
+        const overrides = Array.isArray(config.meterOverrides) ? config.meterOverrides : [];
+        for (const o of overrides) {
+            if (!o || !Number.isFinite(o.channelId))
+                continue;
+            this.overridesByChannel.set(Number(o.channelId), {
+                channelId: Number(o.channelId),
+                phaseLabels: Array.isArray(o.phaseLabels) ? o.phaseLabels.map((s) => String(s || '')) : undefined,
+                enabledPhases: Array.isArray(o.enabledPhases)
+                    ? o.enabledPhases.map(Number).filter((n) => n >= 1 && n <= 3)
+                    : undefined,
+            });
+        }
         this.api.on('didFinishLaunching', () => {
             void this.didFinishLaunching();
         });
@@ -238,15 +251,30 @@ class SuplaMew01Platform {
         }
     }
     contextsForChannel(channel) {
-        if (this.mode === 'combined') {
-            return [{ channelId: channel.id, kind: 'combined' }];
-        }
+        const override = this.overridesByChannel.get(channel.id);
         const phases = channel.state?.phases ?? [];
-        return phases.map((p) => ({
-            channelId: channel.id,
-            kind: 'phase',
-            phaseNumber: p.number,
-        }));
+        const enabledFromOverride = override?.enabledPhases && override.enabledPhases.length > 0
+            ? override.enabledPhases
+            : null;
+        if (this.mode === 'combined') {
+            return [{
+                    channelId: channel.id,
+                    kind: 'combined',
+                    enabledPhases: enabledFromOverride ?? undefined,
+                }];
+        }
+        return phases
+            .filter((p) => !enabledFromOverride || enabledFromOverride.includes(p.number))
+            .map((p) => {
+            const labelIdx = p.number - 1;
+            const label = override?.phaseLabels?.[labelIdx]?.trim() || undefined;
+            return {
+                channelId: channel.id,
+                kind: 'phase',
+                phaseNumber: p.number,
+                customLabel: label,
+            };
+        });
     }
 }
 exports.SuplaMew01Platform = SuplaMew01Platform;

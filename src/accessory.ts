@@ -10,6 +10,10 @@ export interface AccessoryContext {
   channelId: number;
   kind: AccessoryKind;
   phaseNumber?: 1 | 2 | 3;
+  /** Override display name for this accessory (e.g. user-supplied phase label). */
+  customLabel?: string;
+  /** Combined mode only: phases whose values are summed / averaged. Undefined = all. */
+  enabledPhases?: number[];
 }
 
 interface MeterReading {
@@ -86,6 +90,7 @@ export class MeterAccessory {
   }
 
   static displayNameFor(channel: Channel, ctx: AccessoryContext): string {
+    if (ctx.customLabel && ctx.customLabel.trim()) return ctx.customLabel.trim();
     const base = (channel.caption && channel.caption.trim()) || `Meter ${channel.id}`;
     return ctx.kind === 'phase' ? `${base} L${ctx.phaseNumber}` : base;
   }
@@ -143,10 +148,15 @@ export class MeterAccessory {
       };
     }
 
-    const power = phases.reduce((s, p) => s + p.powerActive, 0);
-    const current = phases.reduce((s, p) => s + p.current, 0);
-    const totalEnergy = phases.reduce((s, p) => s + p.totalForwardActiveEnergy, 0);
-    const voltage = phases.reduce((s, p) => s + p.voltage, 0) / phases.length;
+    const enabled = ctx.enabledPhases && ctx.enabledPhases.length > 0
+      ? phases.filter((p) => ctx.enabledPhases!.includes(p.number))
+      : phases;
+    if (enabled.length === 0) return null;
+
+    const power = enabled.reduce((s, p) => s + p.powerActive, 0);
+    const current = enabled.reduce((s, p) => s + p.current, 0);
+    const totalEnergy = enabled.reduce((s, p) => s + p.totalForwardActiveEnergy, 0);
+    const voltage = enabled.reduce((s, p) => s + p.voltage, 0) / enabled.length;
     return { power, voltage, current, totalEnergy };
   }
 }

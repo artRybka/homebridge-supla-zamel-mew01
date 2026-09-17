@@ -67,6 +67,27 @@
         "type": "array",
         "items": { "type": "integer" },
         "condition": { "functionBody": "return false;" }
+      },
+      "meterOverrides": {
+        "title": "Per-meter phase overrides",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "channelId": { "type": "integer" },
+            "phaseLabels": {
+              "type": "array",
+              "items": { "type": "string" },
+              "maxItems": 3
+            },
+            "enabledPhases": {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 1, "maximum": 3 },
+              "maxItems": 3
+            }
+          }
+        },
+        "condition": { "functionBody": "return false;" }
       }
     }
   }

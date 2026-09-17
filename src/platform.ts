@@ -35,6 +35,14 @@ import {
 
 export type PresentationMode = 'combined' | 'perPhase';
 
+export interface MeterOverride {
+  channelId: number;
+  /** Custom labels for each phase, index 0 = L1. Missing / empty entries fall back to defaults. */
+  phaseLabels?: string[];
+  /** Phases (1-based) the user wants exposed. Missing / empty = all. Applies to both modes. */
+  enabledPhases?: number[];
+}
+
 export interface SuplaMew01Config extends PlatformConfig {
   clientId?: string;
   clientSecret?: string;
@@ -45,6 +53,7 @@ export interface SuplaMew01Config extends PlatformConfig {
   pollInterval?: number;
   mode?: PresentationMode;
   channels?: number[];
+  meterOverrides?: MeterOverride[];
 }
 
 interface TokenCacheFile {
@@ -62,6 +71,7 @@ export class SuplaMew01Platform implements DynamicPlatformPlugin {
   private readonly pollIntervalMs: number;
   private readonly mode: PresentationMode;
   private readonly explicitChannels: number[] | null;
+  private readonly overridesByChannel = new Map<number, MeterOverride>();
   private readonly eve: EveCharacteristicSet;
   private readonly tokenCachePath: string;
   private pollTimer: NodeJS.Timeout | null = null;
@@ -84,6 +94,18 @@ export class SuplaMew01Platform implements DynamicPlatformPlugin {
 
     const channels = Array.isArray(config.channels) ? config.channels.filter(Number.isFinite) : [];
     this.explicitChannels = channels.length > 0 ? channels : null;
+
+    const overrides = Array.isArray(config.meterOverrides) ? config.meterOverrides : [];
+    for (const o of overrides) {
+      if (!o || !Number.isFinite(o.channelId)) continue;
+      this.overridesByChannel.set(Number(o.channelId), {
+        channelId: Number(o.channelId),
+        phaseLabels: Array.isArray(o.phaseLabels) ? o.phaseLabels.map((s) => String(s || '')) : undefined,
+        enabledPhases: Array.isArray(o.enabledPhases)
+          ? o.enabledPhases.map(Number).filter((n) => n >= 1 && n <= 3)
+          : undefined,
+      });
+    }
 
     this.api.on('didFinishLaunching', () => {
       void this.didFinishLaunching();
@@ -285,15 +307,31 @@ export class SuplaMew01Platform implements DynamicPlatformPlugin {
   }
 
   private contextsForChannel(channel: Channel): AccessoryContext[] {
+    const override = this.overridesByChannel.get(channel.id);
+    const phases = channel.state?.phases ?? [];
+    const enabledFromOverride = override?.enabledPhases && override.enabledPhases.length > 0
+      ? override.enabledPhases
+      : null;
+
     if (this.mode === 'combined') {
-      return [{ channelId: channel.id, kind: 'combined' as AccessoryKind }];
+      return [{
+        channelId: channel.id,
+        kind: 'combined' as AccessoryKind,
+        enabledPhases: enabledFromOverride ?? undefined,
+      }];
     }
 
-    const phases = channel.state?.phases ?? [];
-    return phases.map<AccessoryContext>((p) => ({
-      channelId: channel.id,
-      kind: 'phase' as AccessoryKind,
-      phaseNumber: p.number,
-    }));
+    return phases
+      .filter((p) => !enabledFromOverride || enabledFromOverride.includes(p.number))
+      .map<AccessoryContext>((p) => {
+        const labelIdx = p.number - 1;
+        const label = override?.phaseLabels?.[labelIdx]?.trim() || undefined;
+        return {
+          channelId: channel.id,
+          kind: 'phase' as AccessoryKind,
+          phaseNumber: p.number,
+          customLabel: label,
+        };
+      });
   }
 }
