@@ -16,19 +16,16 @@
       "clientId": {
         "title": "OAuth Client ID",
         "type": "string",
-        "required": true,
         "condition": { "functionBody": "return false;" }
       },
       "clientSecret": {
         "title": "OAuth Client Secret",
         "type": "string",
-        "required": true,
         "condition": { "functionBody": "return false;" }
       },
       "serverUrl": {
         "title": "Supla Server URL",
         "type": "string",
-        "required": true,
         "condition": { "functionBody": "return false;" }
       },
       "refreshToken": {

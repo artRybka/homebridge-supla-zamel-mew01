@@ -1,153 +1,123 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Supla MEW-01 setup</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 0; margin: 0; }
-    .wrap { padding: 16px; max-width: 780px; }
-    h2 { margin-top: 0; }
-    h3 { margin: 24px 0 8px; }
-    .notice {
-      background: #fff8e1; border-left: 4px solid #ffb300;
-      padding: 10px 12px; margin: 0 0 16px; border-radius: 4px; font-size: 14px;
-    }
-    .step {
-      border: 1px solid #ddd; border-radius: 6px; padding: 14px; margin-bottom: 16px;
-      background: #fafafa;
-    }
-    .step.done { border-color: #4caf50; background: #f1f8e9; }
-    .step.active { border-color: #1976d2; background: #fff; }
-    .step-title { font-weight: 600; margin-bottom: 8px; }
-    .field { margin-bottom: 10px; }
-    .field label { display: block; font-weight: 600; margin-bottom: 4px; font-size: 13px; }
-    .field input[type="text"], .field input[type="password"], .field input[type="number"], .field select, .field textarea {
-      width: 100%; padding: 8px; box-sizing: border-box;
-      border: 1px solid #ccc; border-radius: 4px; font-size: 14px; font-family: inherit;
-    }
-    .field textarea { resize: vertical; min-height: 60px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
-    .field .hint { font-size: 12px; color: #666; margin-top: 4px; }
-    .row { display: flex; gap: 12px; align-items: end; }
-    .row .field { flex: 1; }
-    button {
-      padding: 8px 16px; border: 0; border-radius: 4px;
-      background: #1976d2; color: white; font-weight: 600; cursor: pointer; font-size: 14px;
-    }
-    button[disabled] { background: #999; cursor: not-allowed; }
-    button.secondary { background: #607d8b; }
-    button.link { background: transparent; color: #1976d2; padding: 4px 8px; font-weight: 500; }
-    .meter-list table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    .meter-list th, .meter-list td { text-align: left; padding: 8px; border-bottom: 1px solid #eee; }
-    .meter-list th { background: #f5f5f5; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; }
-    .badge.online { background: #c8e6c9; color: #1b5e20; }
-    .badge.offline { background: #ffcdd2; color: #b71c1c; }
-    .badge.ok { background: #c8e6c9; color: #1b5e20; margin-left: 8px; }
-    .phase-config-row td { padding: 0 8px 8px 32px; background: #fafafa; border-bottom: 1px solid #eee; }
-    .phase-config-row details { font-size: 13px; }
-    .phase-config-row summary { cursor: pointer; padding: 6px 0; color: #1976d2; }
-    .phase-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; margin-top: 6px; }
-    .phase-row { display: flex; gap: 8px; align-items: center; }
-    .phase-row .phase-toggle { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; min-width: 44px; }
-    .phase-row .phase-name { flex: 1; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
-    .phase-config-row .hint { font-size: 11px; color: #777; margin-top: 6px; }
-    .footer { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; gap: 12px; }
-    .empty { padding: 16px; color: #888; text-align: center; font-style: italic; }
-    code { background: #eee; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
-    ol { padding-left: 20px; }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="notice">
-      ⚠️ Energy data (W, V, A, kWh) shows up only in <strong>Eve for HomeKit</strong>, not in Apple Home.
-      This is an Apple platform limitation.
-    </div>
+<style>
+  .supla-wrap { font-size: 14px; }
+  .supla-wrap .step-title { display: flex; align-items: center; gap: 8px; }
+  .supla-wrap .phase-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .supla-wrap .phase-row { display: flex; gap: 8px; align-items: center; }
+  .supla-wrap .phase-row .form-check { margin: 0; min-width: 52px; }
+  .supla-wrap .phase-row .phase-name { flex: 1; }
+  .supla-wrap .phase-config-row > td { padding-left: 28px; }
+  .supla-wrap details > summary { cursor: pointer; }
+  .supla-wrap .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+</style>
 
-    <div class="step" id="step1">
-      <div class="step-title">1. OAuth application credentials <span id="step1Badge"></span></div>
-      <ol style="margin-top: 0; font-size: 13px; color: #555;">
-        <li>In Supla Cloud: <em>Integrations → My OAuth apps → Register a new OAuth application</em></li>
-        <li>Set <strong>Redirect URI: <code>http://localhost</code></strong></li>
-        <li>Copy <strong>Client ID</strong> and <strong>Client Secret</strong>, paste below</li>
+<div class="supla-wrap">
+
+  <div class="alert alert-warning" role="alert">
+    <strong>Energy values appear in Eve for HomeKit, not Apple Home.</strong>
+    Apple Home (before iOS 27 native Matter energy) does not render power/energy characteristics.
+    The accessory still shows up as an outlet.
+  </div>
+
+  <div class="card mb-3" id="step1">
+    <div class="card-body">
+      <h5 class="card-title step-title">
+        1. OAuth application credentials <span id="step1Badge"></span>
+      </h5>
+      <ol class="small text-muted ps-3">
+        <li>In Supla Cloud: <em>Integrations &rarr; My OAuth apps &rarr; Register a new OAuth application</em></li>
+        <li>Set <strong>Redirect URI:</strong> <code>http://localhost</code></li>
+        <li>Copy <strong>Client ID</strong> and <strong>Client Secret</strong> below</li>
       </ol>
 
-      <div class="field">
-        <label for="serverUrl">Supla Server URL</label>
-        <input type="text" id="serverUrl" placeholder="https://svr57.supla.org" />
-        <div class="hint">The server you logged into when creating the OAuth app (visible in the browser address bar).</div>
+      <div class="mb-3">
+        <label class="form-label" for="serverUrl">Supla Server URL</label>
+        <input type="text" class="form-control" id="serverUrl" placeholder="https://svr57.supla.org" />
+        <div class="form-text">The server you were logged into when creating the OAuth app.</div>
       </div>
 
-      <div class="field">
-        <label for="clientId">Client ID (Public ID)</label>
-        <input type="text" id="clientId" placeholder="25_abc123..." autocomplete="off" />
+      <div class="mb-3">
+        <label class="form-label" for="clientId">Client ID (Public ID)</label>
+        <input type="text" class="form-control mono" id="clientId" placeholder="25_abc123..." autocomplete="off" />
       </div>
 
-      <div class="field">
-        <label for="clientSecret">Client Secret</label>
-        <input type="password" id="clientSecret" autocomplete="off" />
+      <div class="mb-3">
+        <label class="form-label" for="clientSecret">Client Secret</label>
+        <input type="password" class="form-control mono" id="clientSecret" autocomplete="off" />
       </div>
     </div>
+  </div>
 
-    <div class="step" id="step2">
-      <div class="step-title">2. Authorize with Supla <span id="step2Badge"></span></div>
-      <p style="font-size: 13px; color: #555; margin-top: 0;">
+  <div class="card mb-3" id="step2">
+    <div class="card-body">
+      <h5 class="card-title step-title">
+        2. Authorize with Supla <span id="step2Badge"></span>
+      </h5>
+      <p class="small text-muted">
         Opens Supla in a new tab. After you approve, Supla redirects to
-        <code>http://localhost/?code=…</code> — the page will fail to load (that's expected).
-        Copy the <strong>full redirect URL</strong> from the browser address bar and paste below.
+        <code>http://localhost/?code=&hellip;</code> &mdash; that page will fail to load, which is expected.
+        Copy the <strong>full redirect URL</strong> from the address bar and paste it below.
+        The code is single-use, so do this without delay.
       </p>
 
-      <div style="margin-bottom: 10px;">
-        <button id="authorizeBtn" type="button">Open Supla authorization</button>
-        <a id="authorizeLink" href="#" target="_blank" rel="noopener" style="margin-left: 10px; font-size: 12px; display: none;">Open link</a>
+      <div class="mb-3">
+        <button id="authorizeBtn" type="button" class="btn btn-primary">Open Supla authorization</button>
+        <a id="authorizeLink" href="#" target="_blank" rel="noopener" class="small ms-2 d-none">Open link</a>
       </div>
 
-      <div class="field">
-        <label for="redirectUrl">Redirect URL (or just the <code>code</code> parameter)</label>
-        <textarea id="redirectUrl" placeholder="http://localhost/?code=…&state=…" rows="3"></textarea>
+      <div class="mb-3">
+        <label class="form-label" for="redirectUrl">Redirect URL (or just the <code>code</code> value)</label>
+        <textarea class="form-control mono" id="redirectUrl" rows="3"
+                  placeholder="http://localhost/?code=...&amp;state=..."></textarea>
       </div>
 
-      <button id="exchangeBtn" type="button">Exchange code for tokens</button>
+      <button id="exchangeBtn" type="button" class="btn btn-primary">Exchange code for tokens</button>
     </div>
+  </div>
 
-    <div class="step" id="step3">
-      <div class="step-title">3. Discover meters &amp; options <span id="step3Badge"></span></div>
+  <div class="card mb-3" id="step3">
+    <div class="card-body">
+      <h5 class="card-title step-title">
+        3. Meters, phases &amp; options <span id="step3Badge"></span>
+      </h5>
 
-      <div class="row">
-        <div class="field">
-          <label for="name">Platform name</label>
-          <input type="text" id="name" value="Supla MEW-01" />
+      <div class="row g-3 mb-3">
+        <div class="col-12 col-md-5">
+          <label class="form-label" for="name">Platform name</label>
+          <input type="text" class="form-control" id="name" value="Supla MEW-01" />
         </div>
-        <div class="field" style="flex: 0 0 160px;">
-          <label for="pollInterval">Poll interval (s)</label>
-          <input type="number" id="pollInterval" value="30" min="10" max="600" />
+        <div class="col-6 col-md-3">
+          <label class="form-label" for="pollInterval">Poll interval (s)</label>
+          <input type="number" class="form-control" id="pollInterval" value="30" min="10" max="600" />
         </div>
-        <div class="field">
-          <label for="mode">Presentation</label>
-          <select id="mode">
+        <div class="col-6 col-md-4">
+          <label class="form-label" for="mode">Presentation</label>
+          <select class="form-select" id="mode">
             <option value="combined">Single accessory (sum of phases)</option>
             <option value="perPhase">One accessory per phase</option>
           </select>
         </div>
       </div>
 
-      <div style="margin: 10px 0;">
-        <button id="testBtn" type="button">Test connection &amp; detect meters</button>
+      <div class="mb-3">
+        <button id="testBtn" type="button" class="btn btn-primary">Test connection &amp; detect meters</button>
+        <span id="serverInfo" class="small text-muted ms-2"></span>
       </div>
 
-      <div class="meter-list" id="meterList">
-        <div class="empty">No meters discovered yet.</div>
-      </div>
-    </div>
-
-    <div class="footer">
-      <div></div>
-      <div>
-        <button id="saveBtn" type="button">Save configuration</button>
+      <div id="meterList">
+        <p class="text-muted fst-italic mb-0">No meters discovered yet.</p>
       </div>
     </div>
   </div>
 
-  <script src="script.js"></script>
-</body>
-</html>
+  <div class="d-flex justify-content-end mb-2">
+    <button id="saveBtn" type="button" class="btn btn-success">Save configuration</button>
+  </div>
+
+</div>
+
+<script src="script.js"></script>

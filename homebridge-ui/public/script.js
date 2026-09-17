@@ -58,9 +58,9 @@ const state = {
 
 function markStepDone(stepId, label) {
   const el = $(stepId);
-  if (el) el.classList.add('done');
+  if (el) el.classList.add('border-success');
   const badge = $(`${stepId}Badge`);
-  if (badge) badge.innerHTML = `<span class="badge ok">${label || 'done'}</span>`;
+  if (badge) badge.innerHTML = `<span class="badge bg-success">${escapeHtml(label || 'done')}</span>`;
 }
 
 function credentialsFromForm() {
@@ -84,7 +84,7 @@ async function onAuthorize() {
     const link = $('authorizeLink');
     link.href = url;
     link.textContent = 'If the tab did not open, click here';
-    link.style.display = 'inline';
+    link.classList.remove('d-none');
     markStepDone('step1', 'credentials entered');
     $('redirectUrl').focus();
   } catch (e) {
@@ -142,6 +142,7 @@ async function onTestConnection() {
     });
     state.discoveredServerUrl = result.serverUrl;
     state.meters = result.meters || [];
+    $('serverInfo').textContent = result.serverUrl ? `Server: ${result.serverUrl}` : '';
     renderMeterList();
     if (state.meters.length === 0) {
       homebridge.toast.warning('Authorization works, but no MEW-01 / LEW-01 meters were found.');
@@ -171,15 +172,15 @@ function ensureOverride(channelId, phaseCount) {
 function renderMeterList() {
   const container = $('meterList');
   if (!state.meters.length) {
-    container.innerHTML = '<div class="empty">No meters discovered yet.</div>';
+    container.innerHTML = '<p class="text-muted fst-italic mb-0">No meters discovered yet.</p>';
     return;
   }
 
   const rows = state.meters.map((m) => {
     const checked = state.selectedChannelIds.has(m.id) ? 'checked' : '';
     const badge = m.connected
-      ? '<span class="badge online">online</span>'
-      : '<span class="badge offline">offline</span>';
+      ? '<span class="badge bg-success">online</span>'
+      : '<span class="badge bg-danger">offline</span>';
 
     const phaseCount = Math.max(1, Math.min(3, m.phaseCount || 3));
     const override = ensureOverride(m.id, phaseCount);
@@ -193,21 +194,28 @@ function renderMeterList() {
       const on = enabledSet ? enabledSet.has(i) : true;
       phaseFields.push(`
         <div class="phase-row">
-          <label class="phase-toggle">
-            <input type="checkbox" data-role="phase-enable" data-channel-id="${m.id}" data-phase="${i}" ${on ? 'checked' : ''} />
-            L${i}
-          </label>
-          <input type="text" class="phase-name" data-role="phase-label" data-channel-id="${m.id}" data-phase="${i}"
-                 placeholder="e.g. Kitchen" value="${escapeAttr(label)}" />
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="ph-${m.id}-${i}"
+                   data-role="phase-enable" data-channel-id="${m.id}" data-phase="${i}" ${on ? 'checked' : ''} />
+            <label class="form-check-label fw-semibold" for="ph-${m.id}-${i}">L${i}</label>
+          </div>
+          <input type="text" class="form-control form-control-sm phase-name"
+                 data-role="phase-label" data-channel-id="${m.id}" data-phase="${i}"
+                 placeholder="e.g. Kitchen" value="${escapeHtml(label)}" />
         </div>
       `);
     }
 
     return `
       <tr>
-        <td><input type="checkbox" data-role="meter-select" data-channel-id="${m.id}" ${checked} /></td>
+        <td>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="sel-${m.id}"
+                   data-role="meter-select" data-channel-id="${m.id}" ${checked} />
+          </div>
+        </td>
         <td>${escapeHtml(m.caption)}</td>
-        <td>${m.id}</td>
+        <td class="mono">${m.id}</td>
         <td>${m.phaseCount}-phase</td>
         <td>${badge}</td>
       </tr>
@@ -215,9 +223,12 @@ function renderMeterList() {
         <td></td>
         <td colspan="4">
           <details>
-            <summary>Phase names &amp; toggles</summary>
+            <summary class="small">Phase names &amp; toggles</summary>
             <div class="phase-grid">${phaseFields.join('')}</div>
-            <div class="hint">Uncheck a phase to hide it (per-phase mode) or exclude it from the sum (combined mode). Names apply in per-phase mode as accessory display names.</div>
+            <div class="form-text">
+              Unchecking a phase hides its accessory (per-phase mode) or excludes it from the totals
+              (combined mode). Names are used as accessory display names in per-phase mode.
+            </div>
           </details>
         </td>
       </tr>
@@ -225,7 +236,7 @@ function renderMeterList() {
   }).join('');
 
   container.innerHTML = `
-    <table>
+    <table class="table table-sm align-middle">
       <thead>
         <tr><th></th><th>Caption</th><th>Channel ID</th><th>Phases</th><th>Status</th></tr>
       </thead>
@@ -274,10 +285,6 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (ch) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[ch]));
-}
-
-function escapeAttr(s) {
-  return escapeHtml(s);
 }
 
 async function onSave() {
